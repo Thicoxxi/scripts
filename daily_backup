@@ -1,0 +1,221 @@
+#!/bin/bash
+
+#===============================================================================
+# Create logs files
+#===============================================================================
+LOG=/scripts/logs/`date +%d-%m-%Y`-backup.log
+ echo " " >> $LOG  
+ echo " " >> $LOG  
+
+#===============================================================================
+# Function iSCSI
+#===============================================================================
+function iSCSI() {
+ls /dev/disk/by-uuid/ | grep 96119a3e-07a8-44d2-81d4-e60981c1d48f
+ret=$?
+echo $ret
+if [ $ret -eq 0 ]; then
+        echo "iSCSI volume already is mounted" >> $LOG
+else
+    iscsiadm -m node -T iqn.1994-04.jp.co.hitachi:rsd.d9x.t.33049.1e00b -l -p 172.24.49.24:3260
+
+        echo "iSCSI volume not is mounted" >> $LOG
+sleep 2
+mount /dev/disk/by-uuid/96119a3e-07a8-44d2-81d4-e60981c1d48f /repolocal/ 
+       echo "iSCSI volume mounted" >> $LOG     
+fi
+}
+
+#===============================================================================
+# Function nfs
+#===============================================================================
+function nfs() {
+if [ 'mount | grep 172.24.44.14:/exports' ] || [ 'mount | grep 172.24.44.14:/WindowsImageBackup' ]; then
+echo "Mount targets" >> $LOG
+mount -t nfs 172.24.44.14:/exports /exports/
+mount -t nfs 172.24.44.14:/WindowsImageBackup /winserver2012/
+
+ if [ $? -eq 0 ]; then
+
+                echo "targets mounted sucessufully" >> $LOG
+                fi
+
+else
+
+                echo "NFS target already mounted" >> $LOG
+fi
+}
+
+#===============================================================================
+# Function remotersync
+#===============================================================================
+function remotersync() {
+for src_folder in $TEMPLATE_LIST; do
+    rsync -rav -e ssh root@$TEMPLATE_HOST:/$VM_FOLDER/$src_folder $BKP_FOLDER
+done
+}
+
+#===============================================================================
+# Function cprsync
+#==============================================================================
+function cprsync() {
+for host in $HOS; do scp -v $ORI root@$host:$DES;done
+}
+
+#===============================================================================
+# Function folders
+#===============================================================================
+function folders () {
+
+FOLDER='/backup/disco1/gateway/etc/ /backup/disco1/gateway/repolocal/ /backup/disco1/vmware/ci/ /backup/disco1/vmware/repos/ /backup/disco1/vmware/rosp7/ /backup/disco1/vmware/susecloud5/ /backup/disco1/virtualbox/solaris/ /backup/disco1/winserver2012/ /backup/disco3/exports/ /backup/disco3/vmware/templates/ /backup/disco3/vmware/importantes/'
+CREATE='mkdir -p -v'
+
+if [ ! -d '/backup/disco1/gateway/etc/' ] || [ ! -d '/backup/disco1/gateway/repolocal/' ] || [ ! -d '/backup/disco1/vmware/ci/' ] || [ ! -d '/backup/disco1/vmware/repos/' ] || [ ! -d '/backup/disco1/vmware/rosp7/' ]  || [ ! -d '/backup/disco1/vmware/susecloud5/' ] || [ ! -d '/backup/disco1/winserver2012' ] || [ ! -d '/backup/disco3/exports' ] || [ ! -d '/backup/disco3/vmware/templates' ] || [ ! -d '/backup/disco3/vmware/importantes' ] || [ ! -d '/backup/disco1/virtualbox/solaris/' ]; then
+   	echo "The directories do not exist !!" >> $LOG
+  	echo "Creating directories !!" >> $LOG
+	for folder in $FOLDER; do $CREATE $folder; done
+if [ $? -eq 0 ]; then
+    echo "Directories created successfully !!" >> $LOG
+    fi
+else
+    echo "The Directories already there exist !!" >> $LOG
+fi
+
+}
+
+TODAY=`date +%d/%m/%Y-%H:%M:%S`
+
+echo "============================================" >> $LOG
+echo "Preparing backup: $TODAY                    " >> $LOG
+echo "                                            " >> $LOG
+echo "============================================" >> $LOG
+
+#===============================================================================
+# Creating backup folders
+#===============================================================================
+folders >>$LOG
+
+#===================
+# Rsync vmware file 
+#===================
+
+echo "SCP Rsync file..." >> $LOG
+HOS='172.24.45.7 172.24.45.8 172.24.47.19 172.24.47.37'
+ORI='/scripts/rsync/rsync'
+DES='/bin/'
+cprsync >> $LOG
+
+#=======================================
+# File firewall permission rsync vmware 
+#=======================================
+
+echo "SCP File firewall permissions..." >> $LOG
+HOS='172.24.45.7 172.24.45.8 172.24.47.19 172.24.47.37'
+ORI='/scripts/rsync/rsync.xml'
+DES='/etc/vmware/firewall/'
+cprsync >> $LOG
+
+echo "====================================================================================" >> $LOG 
+echo "Backing up: $TODAY"                                                                   >> $LOG
+echo "====================================================================================" >> $LOG
+
+echo "Local folders of  gateway..." >> $LOG
+nfs >> $LOG
+iSCSI >> $LOG
+rsync -rav /repolocal/ /backup/disco1/gateway/repolocal/ >> $LOG
+rsync -rav /etc/ /backup/disco1/gateway/etc/ >> $LOG
+rsync -rav /exports/ /backup/disco3/exports/ >> $LOG
+rsync -rav /winserver2012/ /backup/disco1/winserver2012/ >> $LOG
+
+
+#===============================================================================
+# Templates
+#===============================================================================
+echo "Templates..." >> $LOG
+TEMPLATE_HOST='172.24.47.19'
+BKP_FOLDER='/backup/disco3/vmware/templates'
+VM_FOLDER='/vmfs/volumes/54465d55-2263f87c-c9ea-c81f66f0d1e5'
+TEMPLATE_LIST='rhel6.3-template rhel6.5-template rhel7.0 template-centos-6.5 template-hdi template-mini-ubuntu-14.04 template-rhel7.1 template-ubuntu-server-14.04.1 ubuntu-server14.04-OSP-single-node-template ubuntu-server14.04-template ubunutu-server12.04.3-template ubunutu-server12.04.3-template Ubuntu12.04LTS-template vmware-vcenter-server-backup template-ubuntu-server14.04-ds_optimized template-ubuntu_server-15.04'
+remotersync >> $LOG
+
+#===============================================================================
+# CI machines
+#===============================================================================
+#host 7
+echo "CI machines host 7..." >> $LOG
+TEMPLATE_HOST='172.24.45.7'
+BKP_FOLDER='/backup/disco1/vmware/ci'
+VM_FOLDER='/vmfs/volumes/540f1afc-d08ad6fd-5db0-00e0ec2543e8'
+TEMPLATE_LIST='115-ubuntu-14.04-slave_ci_hnas_iscsi-marcus 117-ubuntu-14.04-slave_ci_hnas_nfs-marcus 121-ubuntu-14.04-slave_ci_hbsd_iscsi-marcus 122-ubuntu-14.04-slave_ci_hbsd_fc-marcus 154-ubuntu-12.04-ci_log_server-marcus'
+remotersync >> $LOG
+
+#host 8
+echo "CI machines host 8..." >> $LOG
+TEMPLATE_HOST='172.24.45.8'
+BKP_FOLDER='/backup/disco1/vmware/ci'
+VM_FOLDER='/vmfs/volumes/556ef116-46605c3a-c2d8-00e0ec25448c'
+TEMPLATE_LIST='112-ubuntu-14.04-slave_ci_manila-diego 114-ubuntu-12.04-ci_master_manila-marcus 119-ubuntu-12.04-ci_master_nodepool-marcus 120-ubuntu-14.04-slave_ci_hbsd_husvm-marcus 123-ubuntu-12.04-ci_master_hbsd-marcus 124-ubuntu-12.04-ci_master_horcm-marcus 125-ubuntu-14.04-slave_ci_hm800-diego 088-ubuntu-14.04-test_hm800ci-erlon'
+remotersync >> $LOG
+
+#===============================================================================
+# Repolocal
+#===============================================================================
+echo "Repolocal..." >> $LOG
+TEMPLATE_HOST='172.24.47.19'
+BKP_FOLDER='/backup/disco1/vmware/repos'
+VM_FOLDER='/vmfs/volumes/542547b3-7e0fb17c-304d-c81f66f0d1e5'
+TEMPLATE_LIST='171-ubuntu-14.04-local_git_repository-marcus 172-ubuntu-server-14.04-repolocal'
+remotersync >> $LOG
+
+#===============================================================================
+# Windows
+#===============================================================================
+echo "Windows..." >> $LOG
+TEMPLATE_HOST='172.24.47.19'
+BKP_FOLDER='/backup/disco3/vmware/importantes'
+VM_FOLDER='/vmfs/volumes/542547b3-7e0fb17c-304d-c81f66f0d1e5'
+TEMPLATE_LIST='083-windows-2008-vcenter-thiago'
+remotersync >> $LOG
+
+#===============================================================================
+# Suse Cloud 5
+#===============================================================================
+echo "Suse..." >> $LOG
+TEMPLATE_HOST='172.24.47.37'
+BKP_FOLDER='/backup/disco1/vmware/susecloud5'
+VM_FOLDER='/vmfs/volumes/555cc4f2-26dcc3c4-eb1f-b083fee5b025'
+TEMPLATE_LIST='061-sles11-susecloud5-admin 062-sles1?1-susecloud5-control 063-sles11-susecloud5-compute 065-sles11-susecloud5-storage'
+remotersync >> $LOG
+
+#===============================================================================
+# ROSP 7
+#===============================================================================
+echo "Rosp7..." >> $LOG
+TEMPLATE_HOST='172.24.47.37'
+BKP_FOLDER='/backup/disco1/vmware/rosp7'
+VM_FOLDER='/vmfs/volumes/555cc4f2-26dcc3c4-eb1f-b083fee5b025'
+TEMPLATE_LIST='071-rhel7.1-rhosp_7-director'
+remotersync >> $LOG
+
+echo "Rosp7 Manila..." >> $LOG
+TEMPLATE_HOST='172.24.47.19'
+BKP_FOLDER='/backup/disco1/vmware/rosp7'
+VM_FOLDER='/vmfs/volumes/542547b3-7e0fb17c-304d-c81f66f0d1e5'
+TEMPLATE_LIST='133-rhel-7.1-director-rhosp7-adriano'
+remotersync >> $LOG
+
+#===============================================================================
+# Solaris
+#===============================================================================
+echo "Solaris..." >> $LOG
+TEMPLATE_HOST='172.24.44.21'
+BKP_FOLDER='/backup/disco1/virtualbox/solaris'
+VM_FOLDER='/home/ubuntu/VirtualBox VMs'
+TEMPLATE_LIST='sol-11_3-vbox'
+remotersync >> $LOG
+
+FINALDAY=`date +%d/%m/%Y-%H:%M:%S`
+
+echo "====================================================================================" >> $LOG 
+echo "Backup finalized: $FINALDAY"                                                          >> $LOG
+echo "====================================================================================" >> $LOG
