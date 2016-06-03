@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# variables / constants
+
+ALGAR_IPA="201.48.5.193"
+ALGAR_NET="201.48.5.192/28"
+ALGAR_GAT="201.48.5.206"
+ALGAR_NIC="eth0"
+
+FOURINET_IPA="177.84.241.119"
+FOURINET_NET="177.84.240.0/21"
+FOURINET_GAT="177.84.240.1"
+FOURINET_NIC="em1"
+
+# Cleaning tables
+
+ip route flush table ALGAR
+ip route flush table FOURINET
+ip route flush table BALANCE
+
+# CLeaning rules
+
+ip rule del from 201.48.5.193 table ALGAR
+ip rule del from 177.84.241.119 table FOURINET
+ip rule del fwmark 0x2 table BALANCE
+ip rule del fwmark 0x1 table FOURINET 
+ip route del default
+
+# Configuring table ALGAR
+
+ip route add $ALGAR_NET dev $ALGAR_NIC src $ALGAR_IPA table ALGAR
+ip route add default via $ALGAR_GAT table ALGAR
+
+# configuring table FOURINET
+
+ip route add $FOURINET_NET dev $FOURINET_NIC src $FOURINET_IPA table FOURINET
+ip route add default via $FOURINET_GAT table FOURINET
+
+# Trafficking of eth0 out by ALGAR table
+
+ip rule add from $ALGAR_IPA table ALGAR
+
+# Trafficking of em1 out by FOURINET table
+
+ip rule add from $FOURINET_IPA table FOURINET
+
+# Defining rules for marking the packages they leave the intranet BALANCE
+
+ip rule add fwmark 2 table BALANCE
+
+# Defining rule for packets marked by the come out FOURINET
+
+ip rule add fwmark 1 table FOURINET
+
+# Creating multilink balancing to table BALANCE
+
+ip route add default scope global table BALANCE nexthop via $ALGAR_GAT dev $ALGAR_NIC weight 1 nexthop via $FOURINET_GAT dev $FOURINET_NIC weight 1
+
+#ip route add default scope global nexthop via 201.48.5.206  dev eth0 weight 1 nexthop via 177.84.240.1 dev em1 weight 1
+
+# ip route add default scope global nexthop via $ALGAR_GAT  dev eth0 weight 1 nexthop via $FOURINET_GAT dev em1 weight 1
+
+# Defining standard route
+
+ip route add default via $ALGAR_GAT
+
+# Making flush the cache of routes that have been deleted
+
+ip route flush cache
+
