@@ -1,0 +1,66 @@
+#!/bin/bash
+
+EXT_IFACE="em1"
+EXT_IP="177.84.241.119"
+EXT_NETMASK="255.255.248.0"
+DEFAULT_GW="177.84.240.1"
+DNS_SERVERS="177.84.240.240 8.8.8.8"
+
+EXT_IFACE_ALGAR="eth0"
+EXT_IP_ALGAR="201.48.5.193"
+EXT_NETMASK_ALGAR="255.255.255.240"
+DEFAULT_GW_ALGAR="201.48.5.206"
+DNS_SERVERS_ALGAR="200.225.197.34 200.225.197.37"
+
+# Configure  external interface algar
+route del default
+ifconfig $EXT_IFACE_ALGAR $EXT_IP_ALGAR netmask $EXT_NETMASK_ALGAR
+route add default gw $DEFAULT_GW_ALGAR
+
+# Configure  external interface 4inet
+route del default
+ifconfig $EXT_IFACE $EXT_IP netmask $EXT_NETMASK
+route add default gw $DEFAULT_GW
+
+# Add DNS servers (avoid to be overhidden by network scripts)
+echo "#" > /etc/resolv.conf
+for srv in $DNS_SERVERS_ALGAR; do 
+	echo "nameserver $srv" >> /etc/resolv.conf
+done
+
+# IP fowarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# OpenVPN bridges
+openvpn --mktun --dev tap0
+ifconfig tap0 0.0.0.0 promisc up
+brctl addbr br0
+brctl addif br0 tap0
+#brctl addif br0 eth???
+#ifconfig $eth 0.0.0.0 promisc up
+ifconfig br0 172.24.55.1 netmask 255.255.255.0
+
+#Openvpn bridges LSBD
+openvpn --mktun --dev tap1
+ifconfig tap1 0.0.0.0 promisc up
+brctl addbr br1
+brctl addif br1 tap1
+ifconfig br1 172.24.57.1 netmask 255.255.255.0
+
+
+# Configure internal interfaces
+ifconfig em2 10.0.1.1 netmask 255.255.255.252    # Switch HP1910
+ifconfig em4 10.0.2.1 netmask 255.255.255.252    # Switch HP1920
+ifconfig em3 172.24.49.25 netmask 255.255.255.0  # DevSAN (Backups)
+ifconfig eth1 172.21.0.2 netmask 255.255.255.0   # Verifone
+ifconfig em5 172.24.56.1 netmask 255.255.255.0   # LSBD
+
+# Configuring routes to new eviroment
+route add -net 172.24.44.0/24 gw 10.0.2.2   # Admin netwkork
+route add -net 172.24.45.0/24 gw 10.0.2.2  # CI network
+route add -net 172.24.47.0/24 gw 10.0.2.2  # Dev public
+route add -net 172.24.48.0/24 gw 10.0.2.2  # Desktops
+route add -net 172.24.50.0/24 gw 10.0.1.2  # Baremetal 1
+route add -net 172.24.51.0/24 gw 10.0.1.2  # Baremetal 2
+route add -net 172.24.52.0/24 gw 10.0.1.2  # Baremetal 3
+#route add -net 172.24.56.0/24 gw 10.0.2.2  # LSBD network

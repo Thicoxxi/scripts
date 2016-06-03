@@ -1,0 +1,102 @@
+#!/bin/bash
+
+echo "########################################################################"
+echo "##########             Starting firewall                     ###########" 
+echo "########################################################################"
+
+EXT_IFACE="em1"
+
+EXT_IFACE_ALGAR="eth0"
+
+INTERNAL_NETS="172.24.44.0/24,172.24.45.0/24,172.24.47.0/24,172.24.48.0/24,172.24.49.0/24,172.24.50.0/24,172.24.51.0/24,172.24.52.0/24,172.24.54.0/24,172.24.55.0/24,172.24.56.0/24,172.24.57.0/24,10.0.1.0/30,10.0.2.0/30"
+
+# clear all tables
+iptables -F
+iptables -t nat -F
+
+iptables -P INPUT DROP
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+iptables -A INPUT -i lo -p all -j ACCEPT
+iptables -A OUTPUT -o lo -p all -j ACCEPT
+
+
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+# TODO: Make this rule to work. Ping from the internet should not work
+iptables -A INPUT -p icmp  --icmp-type echo-request -j ACCEPT
+
+# Open VPN port
+iptables -A INPUT -p udp -m multiport --dports 1194,1195 -j ACCEPT 
+
+# Open SSH port
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+
+#iptables -I INPUT -p tcp -m multiport --dports 80,443 -s 172.24.44.7,172.24.44.11,172.24.44.12,172.24.44.13,172.24.44.14 -j ACCEPT
+#iptables -I INPUT -p tcp -m multiport --dports 80,443 -d 172.24.44.7,172.24.44.11,172.24.44.12,172.24.44.13,172.24.44.14 -j ACCEPT
+# VCenter rules
+iptables -A FORWARD -s 172.24.44.14  -d $INTERNAL_NETS -j ACCEPT
+iptables -A FORWARD -s 172.24.44.14  -d $INTERNAL_NETS -j ACCEPT
+iptables -A FORWARD -s $INTERNAL_NETS -d 172.24.44.14  -j ACCEPT
+iptables -A FORWARD -s $INTERNAL_NETS -d 172.24.44.14 -j ACCEPT
+
+iptables -A FORWARD -p tcp -m multiport --dports 80,443 -s 172.24.44.7,172.24.44.11,172.24.44.12,172.24.44.13 -j ACCEPT
+iptables -A FORWARD -p tcp -m multiport --dports 80,443 -s $INTERNAL_NETS -d 172.24.44.7,172.24.44.11,172.24.44.12,172.24.44.13 -j ACCEPT
+
+# Teporary rule for 'treinamento'
+#iptables -A FORWARD -p tcp -m multiport --dports 23,80,111,2049 -s $INTERNAL_NETS -d 172.24.47.172 -j ACCEPT
+#iptables -A FORWARD -s 172.24.56.204  -d $INTERNAL_NETS -j ACCEPT
+#iptables -A FORWARD -s 172.24.55.204  -d $INTERNAL_NETS -j ACCEPT
+iptables -A FORWARD -p tcp -m multiport --dports 23,80,111,2049 -s 172.24.56.0/24 -d 172.24.47.172 -j ACCEPT
+
+# Blocked admin internet traffic
+#iptables -I INPUT -p tcp --destination-port 80:443 -s 172.24.44.0/24 -j DROP
+#iptables -I INPUT -p tcp --destination-port 80:443 -d 172.24.44.0/24 -j DROP
+#iptables -I FORWARD -p tcp --destination-port 80:443 -s 172.24.44.0/24 -j DROP
+#iptables -I FORWARD -p tcp --destination-port 80:443 -d 172.24.44.0/24 -j DROP
+
+# Zabbix
+iptables -A INPUT -s 172.24.48.0/24 -d 10.0.1.0/30 -p tcp -m tcp --dport 80 -j ACCEPT
+#iptables -I  INPUT   -p tcp -s 172.24.48.0/24 --dport 10050:10051  -j ACCEPT
+#iptables -I  INPUT   -p udp -s 172.24.48.0/24 --dport 10050:10051  -j ACCEPT
+
+# NAT access for the internal network
+iptables -t nat -A POSTROUTING -o $EXT_IFACE -j MASQUERADE
+iptables -t nat -A POSTROUTING -o $EXT_IFACE_ALGAR -j MASQUERADE
+
+# Foward port to CI logs host
+iptables -t nat -A PREROUTING -i $EXT_IFACE -p tcp --dport 10000 -j DNAT --to 172.24.45.154 
+iptables -t nat -A PREROUTING -i $EXT_IFACE_ALGAR -p tcp --dport 10000 -j DNAT --to 172.24.45.154
+
+# Allowed traffic from LSBD VPN
+iptables -A FORWARD -s 172.24.56.0/24,172.24.57.0/24 -d 172.24.44.7,172.24.44.15,172.24.44.11,172.24.44.12,172.24.44.13,172.24.53.1,172.24.44.14 -j ACCEPT
+iptables -A FORWARD -d 172.24.56.0/24,172.24.57.0/24 -s 172.24.44.7,172.24.44.15,172.24.44.11,172.24.44.12,172.24.44.13,172.24.53.1,172.24.44.14 -j ACCEPT
+#iptables -A FORWARD -s 172.24.56.0/24,172.24.57.0/24 -d 172.24.44.14 -p tcp --dport 443:902 -j ACCEPT
+#iptables -A FORWARD -d 172.24.56.0/24,172.24.57.0/24 -s 172.24.44.14 -p tcp --dport 443:902 -j ACCEPT
+#iptables -A FORWARD -s 172.24.56.0/24,172.24.57.0/24 -d 172.24.44.14 -p udp --dport 902  -j ACCEPT
+#iptables -A FORWARD -d 172.24.56.0/24,172.24.57.0/24 -s 172.24.44.14 -p udp --dport 902  -j ACCEPT
+
+# Blocked LSBD access from local traffic
+#iptables -I INPUT -s 172.24.56.0/24,172.24.57.0/24 -d 172.21.0.0/24,10.0.1.0/30,10.0.2.0/30 -j DROP
+# FIXME: Descomentar depois do treinamento
+# iptables -A FORWARD -s 172.24.56.0/24,172.24.57.0/24 -d 172.24.44.0/24,172.24.45.0/24,172.24.47.0/24,172.24.48.0/24,172.24.49.0/24,172.24.50.0/24,172.24.51.0/24,172.24.52.0/24,172.24.55.0/24,10.0.1.0/30,10.0.2.0/30,172.21.0.0/24  -j DROP
+
+
+# Blocked LSBD access from local VPN
+#iptables -I INPUT -s 172.24.56.0/24,172.24.57.0/24 -d 172.24.55.0/24 -j DROP
+# FIXME: Descomentar depois do treinamento
+#iptables -A FORWARD -s 172.24.56.0/24 -d 172.24.55.0/24 -j DROP
+
+
+# VMs should not have access to the internet using admin network, exept to HNAS
+iptables -A FORWARD -p tcp -s 172.24.44.0/24 -d $INTERNAL_NETS -j ACCEPT
+iptables -A FORWARD -s 172.24.44.15/24 -j ACCEPT
+iptables -A FORWARD -s 172.24.44.0/24 -j DROP
+
+
+# Blocked Verifone access from local traffic
+#iptables -I INPUT -s 172.21.0.0/24 -d 172.24.55.0/24,172.24.56.0/24,172.24.57.0/24,10.0.1.0/30,10.0.2.0/30 -j DROP
+iptables -A FORWARD -s 172.21.0.0/24 -d 172.24.44.0/24,172.24.45.0/24,172.24.47.0/24,172.24.48.0/24,172.24.49.0/24,172.24.50.0/24,172.24.51.0/24,172.24.52.0/24,172.24.57.0/24,10.0.1.0/30,10.0.2.0/30 -j DROP
+iptables -A FORWARD -s 172.21.0.0/24 -d 172.24.55.0/24,172.24.56.0/24,172.24.57.0/24 -j DROP
