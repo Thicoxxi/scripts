@@ -1,0 +1,172 @@
+#!/bin/sh
+
+  LO_IFACE="lo"
+  LO_IP="127.0.0.1"
+  W_IFACE="wlan0"
+  L_IFACE="eth0"
+  
+  #IP_LIBERADOS='192.168.1.107,192.168.1.108,192.168.1.104,192.168.1.100'
+  DNS="8.8.8.8"
+  #ALLOW_IP='192.168.1.109,192.168.1.111,192.168.1.107,192.168.1.104,192.168.1.105'
+  #ALLOW_NALA='192.168.1.100'
+  ALLOW_N='192.168.0.0/24'
+  PRINTER="192.168.0.110"
+  IPTABLES="/sbin/iptables"
+
+  case "$1" in
+  
+  start)
+  
+    echo "====================================="
+    echo "====   Thico's Firewall          ===="
+    echo "====================================="
+
+          echo -e 'Iniciando Firewall Pessoal..\n'
+  
+          # Carregando os Modulos do Kernel
+  
+          modprobe ip_tables
+          modprobe ipt_LOG
+          
+          # mudando regras padrão
+     
+	  $IPTABLES -P INPUT DROP
+	  $IPTABLES -P FORWARD ACCEPT
+	  $IPTABLES -P OUTPUT ACCEPT
+ 
+          # LocalHost
+	  $IPTABLES -A INPUT -i $LO_IFACE -p all -j ACCEPT
+	  $IPTABLES -A OUTPUT -o $LO_IFACE -p all -j ACCEPT
+          
+          # TODO: Make this rule to work. Ping from the internet should not work
+	  $IPTABLES -A INPUT -p icmp  --icmp-type echo-request -j ACCEPT
+	  
+          $IPTABLES -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+	  $IPTABLES -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+	  
+	  #regras de POSTROUTING
+	 $IPTABLES -t nat -A POSTROUTING -o $W_IFACE -j MASQUERADE
+	 $IPTABLES -t nat -A POSTROUTING -o $L_IFACE -j MASQUERADE
+  
+          $IPTABLES -A INPUT -p udp -s $DNS -j ACCEPT
+
+	   # Permitir acesso SSH apenas a partir da rede 192.168.1.0
+          $IPTABLES -A INPUT -p tcp -s $ALLOW_N --dport 22 -j ACCEPT
+          
+          #As demais tentativas a SSH, negar
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 22 -j LOG
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 22 -j DROP
+	  
+	   # Permitir acesso SAMBA apenas a partir da rede 192.168.1.0
+          $IPTABLES -A INPUT -s $ALLOW_N -p tcp --dport 445 -j ACCEPT
+          $IPTABLES -A INPUT -s $ALLOW_N -p tcp --dport 139 -j ACCEPT
+          $IPTABLES -A INPUT -s $ALLOW_N -p udp --dport 137 -j ACCEPT
+          $IPTABLES -A INPUT -s $ALLOW_N -p udp --dport 138 -j ACCEPT
+          $IPTABLES -A OUTPUT -s $ALLOW_N -p tcp --dport 445 -j ACCEPT
+          $IPTABLES -A OUTPUT -s $ALLOW_N -p tcp --dport 139 -j ACCEPT
+          $IPTABLES -A OUTPUT -s $ALLOW_N -p udp --dport 137 -j ACCEPT
+          $IPTABLES -A OUTPUT -s $ALLOW_N -p udp --dport 138 -j ACCEPT        
+          #As demais tentativas a SAMBA, negar
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 445 -j LOG
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 139 -j LOG
+          $IPTABLES -A INPUT -p udp -s 0/0 --dport 137 -j LOG
+          $IPTABLES -A INPUT -p udp -s 0/0 --dport 138 -j LOG
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 445 -j DROP
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 139 -j DROP
+          $IPTABLES -A INPUT -p udp -s 0/0 --dport 137 -j DROP
+          $IPTABLES -A INPUT -p udp -s 0/0 --dport 138 -j DROP
+	  
+	  #Emby media server
+	  
+	  $IPTABLES -A INPUT -s $ALLOW_N -p tcp -m state --state NEW --dport 8096 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p tcp -m state --state NEW --dport 8920 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 8096 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 8920 -j ACCEPT
+	  #Open plexmedia server
+	  
+	  $IPTABLES -A INPUT -s $ALLOW_N -p tcp -m state --state NEW --dport 32400 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 32400 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 32410 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 32412 -j ACCEPT
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 32414 -j ACCEPT
+	  #UPnP Disabled in router open for the sake of science
+	  $IPTABLES -A INPUT -s $ALLOW_N -p udp -m state --state NEW --dport 1900  -j ACCEPT
+	  # Negar demais tentativas plexmedia
+	  $IPTABLES -A INPUT -p tcp -s 0/0 -m state --state NEW --dport 32400 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32400 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32410 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32412 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32414 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 1900 -j LOG
+	  $IPTABLES -A INPUT -p tcp -s 0/0 -m state --state NEW --dport 32400 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32400 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32410 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32412 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 32414 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 1900 -j DROP
+	  
+	  #impressora
+	  $IPTABLES -A INPUT -s $PRINTER -p udp -m state --state NEW --sport 427 -j ACCEPT
+	  $IPTABLES -A INPUT -s $PRINTER -p udp -m state --state NEW --sport 5353 -j ACCEPT
+	  #negar demais tentativas impressora
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 427 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 5353 -j LOG
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 427 -j DROP
+	  $IPTABLES -A INPUT -p udp -s 0/0 -m state --state NEW --dport 5353 -j DROP
+	  
+	  # Permitir acesso remoto torrent apenas para ips determinados
+          $IPTABLES -A INPUT -p tcp -s $ALLOW_N --dport 8080 -j ACCEPT
+          #As demais tentativas acesso remoto a torrent, negar
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 8080 -j LOG
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 8080 -j DROP
+  
+	# Bloqueia pacotes tcp Malformados                         "
+        $IPTABLES -A FORWARD -p tcp ! --syn -m state --state NEW -j DROP
+        $IPTABLES -A INPUT -m state --state INVALID -j DROP
+        $IPTABLES -A OUTPUT -m state --state INVALID -j DROP
+        $IPTABLES -A FORWARD -m state --state INVALID -j DROP
+  
+	# Protecao contra Ataques DoS
+        $IPTABLES -A INPUT -m state --state INVALID -j DROP
+        $IPTABLES -A OUTPUT -p tcp ! --tcp-flags SYN,RST,ACK SYN -m state --state NEW -j DROP
+  
+           #bloqueia acesso porta servidor aache
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 80 -j LOG
+          $IPTABLES -A INPUT -p tcp -s 0/0 --dport 80 -j DROP
+          
+  
+          # Negar tudo que nao se enquadrar nas regras anteriores
+          $IPTABLES -A INPUT -j DROP
+          $IPTABLES -A FORWARD -j DROP
+  
+          echo -e 'Firewall Pessoal Iniciado ..\n'
+  
+  ;;
+  
+  stop)
+  
+          echo -e 'Parando Firewall Pessoal ..\n'
+  
+          # Limpando regras
+          $IPTABLES -F
+	  $IPTABLES -t nat -F
+	  
+  ;;
+  
+  restart)
+  
+          echo -e 'Reiniciando Firewall Pessoal, aguarde ..\n'
+  
+          $0 stop
+          sleep 2
+          $0 start
+  ;;
+  
+  *)
+          echo "Sintaxe: $0 [ start | stop | restart ]"
+  ;;
+  
+  esac
+ 
+          # $IPTABLES -A FORWARD -p tcp -m state --state NEW -j LOG
+          #$IPTABLES -A FORWARD -p tcp -m state --state NEW -j DROP

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Procura o primeiro servidor NTP ativo
+ntpdate a.ntp.br > /dev/null 2>&1 ||
+ntpdate b.ntp.br > /dev/null 2>&1 ||
+ntpdate c.ntp.br > /dev/null 2>&1
+
+# Atualiza o relógio do BIOS
+hwclock --systohc && > /dev/null 2>&1
+# Exibe a data ajustada
+echo " "
+echo -n "A data atual é: "
+date +"%d/%m/%Y %H:%M:%S"
+echo " "
+exit
